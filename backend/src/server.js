@@ -1,0 +1,66 @@
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+require('dotenv').config();
+
+const connectDatabase = require('./config/database');
+const uploadRoutes = require('./routes/upload');
+const shareRoutes = require('./routes/share');
+const downloadRoutes = require('./routes/download');
+const { apiLimiter } = require('./middleware/rateLimiter');
+const errorHandler = require('./middleware/errorHandler');
+const startExpiryJobs = require('./services/expiryService');
+
+const app = express();
+
+// ── Security middleware ──────────────────────────────
+app.use(helmet());
+app.use(
+    cors({
+        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        credentials: true,
+    })
+);
+app.use(express.json());
+app.use(apiLimiter);
+
+// ── HTTPS redirect in production ─────────────────────
+if (process.env.NODE_ENV === 'production') {
+    app.use((req, res, next) => {
+        if (req.header('x-forwarded-proto') !== 'https') {
+            return res.redirect(`https://${req.header('host')}${req.url}`);
+        }
+        next();
+    });
+}
+
+// ── Routes ───────────────────────────────────────────
+app.use('/api/upload', uploadRoutes);
+app.use('/api/share', shareRoutes);
+app.use('/api/download', downloadRoutes);
+
+// ── Health check ─────────────────────────────────────
+app.get('/health', (_req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ── Error handler ────────────────────────────────────
+app.use(errorHandler);
+
+// ── Start ────────────────────────────────────────────
+const PORT = process.env.PORT || 5000;
+
+async function start() {
+    await connectDatabase();
+    startExpiryJobs();
+
+    app.listen(PORT, () => {
+        console.log(`🚀 Server running on http://localhost:${PORT}`);
+        console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+    });
+}
+
+start().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+});
