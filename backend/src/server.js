@@ -47,20 +47,31 @@ app.get('/health', (_req, res) => {
 // ── Error handler ────────────────────────────────────
 app.use(errorHandler);
 
-// ── Start ────────────────────────────────────────────
-const PORT = process.env.PORT || 5000;
+// ── Database connection (lazy, once) ─────────────────
+let dbConnected = false;
+app.use(async (_req, _res, next) => {
+    if (!dbConnected) {
+        await connectDatabase();
+        dbConnected = true;
+    }
+    next();
+});
 
-async function start() {
-    await connectDatabase();
-    startExpiryJobs();
+// ── Export for Vercel serverless ──────────────────────
+module.exports = app;
 
-    app.listen(PORT, () => {
-        console.log(`🚀 Server running on http://localhost:${PORT}`);
-        console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+// ── Local development server ─────────────────────────
+if (require.main === module) {
+    const PORT = process.env.PORT || 5000;
+    connectDatabase().then(() => {
+        dbConnected = true;
+        startExpiryJobs();
+        app.listen(PORT, () => {
+            console.log(`🚀 Server running on http://localhost:${PORT}`);
+            console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+        });
+    }).catch((err) => {
+        console.error('Failed to start server:', err);
+        process.exit(1);
     });
 }
-
-start().catch((err) => {
-    console.error('Failed to start server:', err);
-    process.exit(1);
-});
