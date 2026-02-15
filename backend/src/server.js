@@ -15,24 +15,37 @@ const app = express();
 
 // ── Security middleware ──────────────────────────────
 app.use(helmet());
+
+const allowedOrigins = [
+    'http://localhost:3000',
+    process.env.FRONTEND_URL,
+].filter(Boolean);
+
 app.use(
     cors({
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        origin: function (origin, callback) {
+            // Allow requests with no origin (mobile apps, curl, etc.)
+            if (!origin) return callback(null, true);
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+            return callback(new Error('Not allowed by CORS'));
+        },
         credentials: true,
     })
 );
 app.use(express.json());
 app.use(apiLimiter);
 
-// ── HTTPS redirect in production ─────────────────────
-if (process.env.NODE_ENV === 'production') {
-    app.use((req, res, next) => {
-        if (req.header('x-forwarded-proto') !== 'https') {
-            return res.redirect(`https://${req.header('host')}${req.url}`);
-        }
-        next();
-    });
-}
+// ── Database connection (lazy, once) ─────────────────
+let dbConnected = false;
+app.use(async (_req, _res, next) => {
+    if (!dbConnected) {
+        await connectDatabase();
+        dbConnected = true;
+    }
+    next();
+});
 
 // ── Routes ───────────────────────────────────────────
 app.use('/api/upload', uploadRoutes);
@@ -46,16 +59,6 @@ app.get('/health', (_req, res) => {
 
 // ── Error handler ────────────────────────────────────
 app.use(errorHandler);
-
-// ── Database connection (lazy, once) ─────────────────
-let dbConnected = false;
-app.use(async (_req, _res, next) => {
-    if (!dbConnected) {
-        await connectDatabase();
-        dbConnected = true;
-    }
-    next();
-});
 
 // ── Export for Vercel serverless ──────────────────────
 module.exports = app;
